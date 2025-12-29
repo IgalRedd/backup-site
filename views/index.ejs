@@ -1,0 +1,929 @@
+<!DOCTYPE html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Main site visuals -->
+    <style>
+        body {
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-start;
+            gap: 1vw;
+
+            height: 100vh;
+            width: 100vw;
+
+            margin: 0;
+
+            background-color: rgb(248, 250, 253)
+        }
+
+        #side-panel {
+            width: 25%;
+        }
+
+        .clickable-button {
+            background-color: rgb(0, 103, 184);
+            color: white;
+
+            border-radius: 2vw;
+            border-style: none;
+
+            padding: 1em;
+        }
+
+        #button-display {
+            width: 100%;
+            height: 25%;
+
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        #button-display button {
+            margin-top: 4vh;
+        }
+
+        #side-panel hr {
+            width: 95%;
+            justify-content: center;
+        }
+
+        #main-panel {
+            width: 70%;
+
+            display: flex;
+            flex-direction: column;
+        }
+
+        #bottom-main-panel {
+            background-color: white;
+
+            border-radius: 2em;
+            flex-grow: 1;
+
+            margin-bottom: 1vh;
+            padding: 1.5em;
+        }
+
+        .exit-button {
+            border-style: none;
+            border-radius: 1em;
+            
+            background-color: inherit;
+
+            cursor: pointer;            
+        }
+
+        .clickable:hover {
+            text-decoration: underline;
+        }
+
+        h3 {
+            font-size: 1.6em;
+        }
+
+        p {
+            font-size: 1.3em;
+        }
+
+        button, label {
+            font-size: 1.2em;
+            font-family: inherit;
+        }
+    </style>
+
+    <!-- File upload pop-up visuals -->
+    <style>
+        #file-upload-container {
+            position: fixed;
+            top: 20vh;
+            left: 40%;
+
+            width: 20%;
+            min-height: 25%;
+
+            background-color: rgb(232, 232, 232);
+            border: 2px solid rgb(232, 232, 232);
+            border-radius: 2vh;
+
+            display: none;
+        }
+
+        #error-message-file-upload {
+            text-align: center;
+        }
+
+        #file-upload-identifier button {
+            position: absolute;
+            right: 2%;
+            top: 2%;
+        }
+
+        #file-upload-identifier p {
+            text-align: center;
+            
+            margin-top: 0.3vh;
+            margin-bottom: 1.7vh;
+        }
+
+        #file-upload-interactive {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-evenly;
+        }
+
+        .file-class {
+            display: flex;
+            flex-direction: row;
+            gap: 0.5vw;
+        }
+
+        .file-class button {
+            flex-shrink: 0;
+
+            margin-left: 0.3vw;
+        }
+
+        .file-class p {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file {
+            cursor: pointer;
+        }
+
+        .file-parent {
+            display: flex;
+            flex-direction: row;
+            gap: 1vw;
+        }
+
+        #download-display {
+            margin-top: 2vh;
+
+            display: flex;
+            flex-direction: column;
+            gap: 2vh;
+            align-items: center;
+
+            overflow-y: auto;
+            height: 70vh;
+        }
+
+        .download-progress-parent {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+
+            width: 95%;
+        }
+
+        .download-info {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 2vw;
+
+            width: 100%;
+        }
+
+        .progress-bar-parent {
+            width: 80%;
+            height: 2vh;
+
+            border-radius: 2em;
+            border-style: solid;
+
+            flex-shrink: 0;
+        }
+
+        .bar-fill {
+            height: 100%;
+
+            border-radius: 2em;
+            border-style: none;
+        }
+    </style>
+
+    <!-- File upload-pop script -->
+    <script>
+        var currentDirectory = "/";
+
+        // 1 MB
+        const chunkSize = 1024 * 1024;
+        // 5 KB
+        const headerOverhead = 1024 * 4;
+        // Safe to assume the total headers + JSON metadata we are sending is < 5 KB so the rest is useful space to send data
+        const dataSize = chunkSize - headerOverhead;
+
+        const maxNameCharacterCount = 64;
+
+
+        // Given the parameters of the file needed it makes the html elements to be inserted for a file
+        // So this'll return the top element to be inserted
+        function fileFactory(name) {
+            let parent = document.createElement("div");
+            parent.classList.add("file-parent");
+
+            let btn = document.createElement("button");
+            btn.textContent = "X";
+            btn.classList.add("exit-button");
+            btn.classList.add("clickable");
+            btn.addEventListener("click", () => {
+                deleteFile(name);
+            });
+
+            let pTag = document.createElement("p");
+            pTag.textContent = name;
+            pTag.classList.add("file");
+            pTag.classList.add("clickable");
+            // Add download functionality
+            pTag.addEventListener("click", () => {
+                window.location.href=`/download/open-dir${currentDirectory}${name}`;
+            });
+
+            parent.appendChild(btn);
+            parent.appendChild(pTag);
+
+            return parent;
+        }
+
+        // Given the name of the file constructs the progress bar element (with all subelements populated)
+        // The returned item still needs to be inserted
+        function progressBarFactory(name) {
+            let divParent = document.createElement("div");
+            divParent.classList.add("download-progress-parent");
+
+            let divInfo = document.createElement("div");
+            divInfo.classList.add("download-info");
+
+            let btn = document.createElement("button");
+            btn.textContent = "X";
+            btn.classList.add("exit-button");
+            btn.classList.add("clickable");
+            btn.addEventListener("click", () => {
+                closeProgressBar(name);
+            });
+
+            let pTag = document.createElement("p");
+            pTag.textContent = name;
+
+            divInfo.appendChild(btn);
+            divInfo.appendChild(pTag);
+
+            let divProgress = document.createElement("div");
+            divProgress.classList.add("progress-bar-parent");
+
+            let bar = document.createElement("div");
+            bar.classList.add("bar-fill");
+
+            divProgress.appendChild(bar);
+
+            divParent.appendChild(divInfo);
+            divParent.appendChild(divProgress);
+
+            return divParent;
+        }
+
+        // Given the progress bar element (top element so div holding it) and the percentage of download
+        // updates the bar to reflect that change
+        // Assumes 100 >= percentage >= 0 
+        function updateProgressBar(elem, percentage) {
+            // I want a cool shifting red to green through yellow effect
+            // so this is that effort
+            
+            // Initial red and green values
+            let R = 255;
+            let G = 0;
+            
+            if (percentage <= 50) {
+                // On the first half we are just increasing green to go to yellow
+                G = 255 * (percentage / 50);
+            } else {
+                // Decrease red to go from yellow to fully green
+                G = 255;
+                R = 255 - 255 * ((percentage - 50) / 50);
+            }
+
+            // Select the bar (div inside of the div)
+            let bar = elem.querySelector(".bar-fill");
+            bar.style.backgroundColor = `rgb(${R}, ${G}, 0)`;
+            bar.style.width = `${percentage}%`;
+        }
+
+        // Given an error message rewrites the progress bar to be an error
+        function indicateErrorProgressBar(elem, message) {
+            let bar = elem.querySelector(".bar-fill");
+            // Red to indicate problem
+            bar.style.backgroundColor = "rgb(255, 0, 0)";
+            bar.style.width = "100%";
+
+            let pTag = document.createElement("p");
+            pTag.textContent = message;
+            elem.appendChild(pTag);
+        }
+
+        // Closes the progress bar, if its complete then just removes it, otherwise cancels the upload'
+        // Parameter: name is the name of the file being uploaded
+        function closeProgressBar(name) {
+            let elements = document.querySelectorAll(".download-progress-parent");
+            for (let i = 0; i < elements.length; i++) {
+                if (elements[i].querySelector("p").textContent == name) {
+
+                    // If it is done then simple matter of deleting it
+                    if (elements[i].classList.contains("completed")) {
+                        elements[i].remove();
+                        return;
+                    }
+
+                    let AJAX = new XMLHttpRequest();
+                    // Create POST, set the path and mark it as json
+                    AJAX.open("POST", "/cancelUpload", true);
+                    AJAX.setRequestHeader("Content-Type", "application/json");
+
+                    let data = JSON.stringify({directory: currentDirectory, name: name});
+
+                    AJAX.onload = () => {
+                        // We mark it as completed and denote that the upload was cancelled
+                        elements[i].classList.add("completed");
+                        indicateErrorProgressBar(elements[i], "Cancelled")
+                    };
+
+                    AJAX.send(data);
+                    
+                    return;
+                }
+            }
+        }
+
+
+        window.onload = () => {
+            let fileInput = document.getElementById("file-form");
+
+            fileInput.value = '';
+
+            // Every time a file is uploaded add it to the list
+            fileInput.addEventListener("change", () => {
+                let nameContainer = document.getElementById("file-upload-info");
+                // Clear any files left-over
+                nameContainer.innerHTML = '';
+                // Clear error messages
+                document.getElementById("error-message-file-upload").textContent = "";
+
+                // Append the files into the element to display their names & and X to remove them if need be 
+                for (let i = 0; i < fileInput.files.length; i++) {
+                    let fileName = fileInput.files[i].name;
+
+                    let div_parent = document.createElement("div");
+                    div_parent.classList.add("file-class");
+
+                    let p_tag = document.createElement("p");
+                    p_tag.innerHTML = fileName;
+
+                    let btn = document.createElement("button");
+                    btn.addEventListener("click", () => {
+                        // We need to do this as the handler evaluates this at run-time not creation
+                        // so using fileInput.files[i].name can cause out of bounds error
+                        removeSpecificFile(fileName);
+                    });
+                    btn.classList.add("exit-button");
+                    btn.classList.add("clickable");
+                    btn.textContent = "X";
+
+                    div_parent.appendChild(btn);
+                    div_parent.appendChild(p_tag);
+                    nameContainer.appendChild(div_parent);
+                }
+            });
+        }
+
+        // Opens pop-up for file uploading
+        function presentFileUpload() {
+            // Only one pop-up should be present
+            if (document.getElementById("new-directory-container").style.display != "none") {
+                closeNewDirectory();
+            }
+
+            document.getElementById("file-upload-container").style.display = "inline";
+        }
+
+        // Closes the pop-up for file uploading
+        function closeFileUpload() {
+            let displayBlock = document.getElementById("file-upload-container");
+            displayBlock.style.display = "none";
+
+            // Clear the file areas
+            document.getElementById("file-upload-info").innerHTML = '';
+            document.getElementById("file-form").value = '';
+            document.getElementById("error-message-file-upload").textContent = "";
+        }
+
+        // Allows when uploading to remove a specific file given its name
+        function removeSpecificFile(name) {
+            // Find it in the div and remove it
+            let inner_divs = document.getElementsByClassName("file-class");
+            for (let i = 0; i < inner_divs.length; i++) {
+                if (inner_divs[i].querySelector("p").innerHTML == name) {
+                    inner_divs[i].remove();
+                    break;
+                }
+            }
+
+            // Can't delete from the read-only files array so we make a new one and reset it
+            let fileInput = document.getElementById("file-form");
+            let dt = new DataTransfer();
+            for (let i = 0; i < fileInput.files.length; i++) {
+                if (fileInput.files[i].name !== name) {
+                    dt.items.add(fileInput.files[i]);
+                }
+            }
+
+            fileInput.files = dt.files;         
+        }
+
+        // Handles uploading a specific file;
+        // This'll handle chunking and error messages
+        async function handleFileUpload(file) {
+            let size = file.size;
+            let name = file.name;
+
+            let numChunksNeeded = Math.ceil(size / dataSize);
+
+            // An anonymous function to upload a request given the request and data
+            // This is done so we can await on it's return, so as not to send data without the previous one finishing
+            let anonymousAsyncUploading = (data, AJAX) => {
+                return new Promise((res, req) => {
+                    AJAX.onload = () => res();
+                    AJAX.send(data);
+                });
+            }
+
+            // Get the progress bar and append it
+            let progressBar = progressBarFactory(name);
+            document.getElementById("download-display").appendChild(progressBar);
+
+            // Verify the name is normal-sized. Too long of names cause issues
+            // in the HTTP protocol as we are using headers
+            if (name.length > maxNameCharacterCount) {
+                indicateErrorProgressBar(progressBar, 
+                "Name is too long, please ensure it is 64 characters long (including . and extension).");
+
+                // So it is marked as "done"
+                progressBar.classList.add("completed");
+
+                return;
+            }
+
+            // Flag for if the upload was successful
+            success = true;
+
+            for (let i = 0; i < numChunksNeeded; i++) {
+                let AJAX = new XMLHttpRequest();
+                AJAX.open("POST", "/upload", true);
+                // Octet stream to upload large files
+                AJAX.setRequestHeader("Content-Type", "application/octet-stream")
+
+                // Sets the meta-data of the file
+                AJAX.setRequestHeader("X-File-Name", name);
+                AJAX.setRequestHeader("X-Current-Chunk", i);
+                AJAX.setRequestHeader("X-Chunks-Needed", numChunksNeeded);
+                AJAX.setRequestHeader("X-Current-Directory", currentDirectory);
+
+                // Slicing is safe since it won't append anything
+                await anonymousAsyncUploading(file.slice(i * dataSize, (i + 1) * dataSize), AJAX);
+
+                // Update the progress bar
+                updateProgressBar(progressBar, ((i + 1) / numChunksNeeded) * 100);
+
+                if (AJAX.status != 200) {
+                    success = false;
+                    indicateErrorProgressBar(progressBar, AJAX.responseText);
+
+                    // The user wished to cancel the upload, so we shall stop sending chunks entirely.
+                    // No need for the rest of the code, just return
+                    if (AJAX.status == 421) {
+                        return;
+                    }
+                    
+                    break;
+                }
+            }
+
+            // Pseudo-class, just to be able to use it to indicate something
+            progressBar.classList.add("completed");
+
+            if (success) {
+                let elem = fileFactory(name);
+                document.getElementById("files").appendChild(elem);
+            }
+        }
+
+        function uploadFiles() {
+            let fileInput = document.getElementById("file-form");
+
+            // Ensure a file was uploaded
+            if (fileInput.files.length == 0) {
+                document.getElementById("error-message-file-upload").textContent = "Please select some files";
+                return;
+            }
+
+            for (let i = 0; i < fileInput.files.length; i++) {
+                handleFileUpload(fileInput.files[i]);
+            }
+
+            closeFileUpload();
+        }
+    
+        function deleteFile(name) {
+            let AJAX = new XMLHttpRequest();
+            // Create POST, set the path and mark it as json
+            AJAX.open("POST", "/deleteFile", true);
+            AJAX.setRequestHeader("Content-Type", "application/json");
+
+            let data = JSON.stringify({directory: currentDirectory, name: name});
+
+            AJAX.onload = () => {
+                if (AJAX.status == 200) {
+                    let files = document.querySelectorAll(".file-parent");
+                    for (let i = 0; i < files.length; i++) {
+                        if (files[i].querySelector("p").textContent == name) {
+                            files[i].remove();
+                            break;
+                        }
+                    }
+                } else {
+                    alert(AJAX.responseText);
+                }
+            };
+
+            AJAX.send(data);
+        }
+
+    </script>
+
+    <!-- New directory visuals -->
+    <style>
+        #new-directory-container {
+            position: fixed;
+            top: 20vh;
+            left: 40%;
+
+            width: 20%;
+            height: 25%;
+
+            background-color: rgb(232, 232, 232);
+            border: 2px solid rgb(232, 232, 232);
+            border-radius: 2vh;
+
+            display: none;
+        }
+
+        #error-message-directory-upload {
+            text-align: center;
+        }
+
+        #new-directory-identifier button {
+            position: absolute;
+            right: 2%;
+            top: 2%;
+        }
+
+        #new-directory-identifier p {
+            text-align: center;
+
+            margin-top: 0.3vh;
+            margin-bottom: 1.7vh;
+        }
+
+        #new-directory-inputs {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 2vh;
+        }
+
+        #directory-name {
+            width: 80%;
+            padding: 0.4em;
+
+            font-size: 1.3em;
+
+            border-radius: 1.5em;
+            border-style: none;
+        }
+
+        .directory {
+            cursor: pointer;
+        }
+
+        .directory-parent {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 1vw;
+        }
+
+        #current-directory-parent {
+            display: flex;
+            flex-direction: row;
+            gap: 0.2vw;
+        }
+
+        #current-directory-parent p {
+            cursor: pointer;
+        }
+    </style>
+
+    <!-- New directory script -->
+     <script>
+        function directoryFactory(name) {
+            let divParent = document.createElement("div");
+            divParent.classList.add("directory-parent");
+
+            let btn = document.createElement("button");
+            btn.textContent = "X";
+            btn.classList.add("exit-button");
+            btn.classList.add("clickable");
+            btn.addEventListener("click", () => {
+                deleteDirectory(name);
+            });
+
+            let pTag = document.createElement("p");
+            pTag.classList.add("directory");
+            pTag.classList.add("clickable");
+            pTag.textContent = name;
+            pTag.onclick = () => jumpToDirectory(name);
+
+            divParent.appendChild(btn);
+            divParent.appendChild(pTag);
+
+            return divParent;
+        }
+
+        function openNewDirectory() {
+            // Hide the other pop-up if need be
+            if (document.getElementById("file-upload-container").style.display !== "none") {
+                closeFileUpload();
+            }
+
+            document.getElementById("new-directory-container").style.display = "inline";
+        }
+
+        function closeNewDirectory() {
+            document.getElementById("new-directory-container").style.display = "none";
+            document.getElementById("directory-name").value = "";
+            document.getElementById("error-message-directory-upload").textContent = "";
+        }
+
+        function submitNewDirectory() {
+            let name = document.getElementById("directory-name").value.trim();
+
+            if (name == "") {
+                document.getElementById("error-message-directory-upload").textContent = "Please enter in a directory name";
+                return;
+            }
+
+            let AJAX = new XMLHttpRequest();
+            // Create POST, set the path and mark it as json
+            AJAX.open("POST", "/createDirectory", true);
+            AJAX.setRequestHeader("Content-Type", "application/json");
+            // The data we will send
+            let data = JSON.stringify({directory: currentDirectory, name: name})
+
+            // Handle response
+            AJAX.onload = () => {
+                // Clear the name label
+                document.getElementById("directory-name").value = "";
+
+                // Create the directory in the HTML view
+                if (AJAX.status == 200) {
+                    document.getElementById("directories").appendChild(directoryFactory(name));
+
+                    closeNewDirectory();
+                } else {
+                    document.getElementById("error-message-directory-upload").textContent = "Name for directory is already taken";
+                }
+            };
+
+            AJAX.send(data);
+        }
+
+        function jumpToDirectory(name) {
+            let AJAX = new XMLHttpRequest();
+            // Create POST, set the path and mark it as json
+            AJAX.open("POST", "/getDirectoryInfo", true);
+            AJAX.setRequestHeader("Content-Type", "application/json");
+            // The data we will send
+            let data = JSON.stringify({directory: currentDirectory, name: name})
+
+            AJAX.onload = () => {
+                // Clear out the old files and directories
+                document.getElementById("directories").innerHTML = '';
+                document.getElementById("files").innerHTML = '';
+
+                let itemsPresentObj = JSON.parse(AJAX.responseText);
+
+                // Add in the files
+                let fileParent = document.getElementById("files");
+                for (let i = 0; i < itemsPresentObj.filesPresent.length; i++) {
+                    fileParent.appendChild(fileFactory(itemsPresentObj.filesPresent[i]));
+                }
+
+                // Add in the directories
+                let directoryParent = document.getElementById("directories");
+                for (let i = 0; i < itemsPresentObj.directoriesPresent.length; i++) {
+                    directoryParent.appendChild(directoryFactory(itemsPresentObj.directoriesPresent[i]));
+                }
+
+                // Update  the current directory
+                currentDirectory = currentDirectory + name + "/";
+
+                // Add the new directory
+                let pTag = document.createElement("p");
+                pTag.textContent = name + "/";
+                pTag.classList.add("clickable");
+                // Need this because the event listener lazily just references it which causes issues later
+                const dereference = currentDirectory;
+                pTag.addEventListener("click", () => {
+                    traverseDirectoryBackwards(dereference);
+                });
+
+                document.getElementById("current-directory-parent").appendChild(pTag);
+            };
+
+            AJAX.send(data);
+        }
+     
+        function traverseDirectoryBackwards(path) {
+            let AJAX = new XMLHttpRequest();
+            // Create POST, set the path and mark it as json
+            AJAX.open("POST", "/getDirectoryInfo", true);
+            AJAX.setRequestHeader("Content-Type", "application/json");
+            // The data we will send - use same method so set the name as empty
+            let data = JSON.stringify({directory: path, name: ""});
+
+            AJAX.onload = () => {
+                // Clear out the old files and directories
+                document.getElementById("directories").innerHTML = '';
+                document.getElementById("files").innerHTML = '';
+
+                let itemsPresentObj = JSON.parse(AJAX.responseText);
+
+                // Add in the files
+                let fileParent = document.getElementById("files");
+                for (let i = 0; i < itemsPresentObj.filesPresent.length; i++) {
+                    fileParent.appendChild(fileFactory(itemsPresentObj.filesPresent[i]));
+                }
+
+                // Add in the directories
+                let directoryParent = document.getElementById("directories");
+                for (let i = 0; i < itemsPresentObj.directoriesPresent.length; i++) {
+                    directoryParent.appendChild(directoryFactory(itemsPresentObj.directoriesPresent[i]));
+                }
+
+                // We now have to remove the extraneous elements from the directory path in the site
+                // To do this we need to know the number of elements to remove
+                let slashCounter = (s) => {
+                    cntr = 0;
+                    for (let i = 0; i < s.length; i++) {
+                        if (s[i] == "/") {cntr++;}
+                    }
+
+                    return cntr;
+                };
+
+                // Since path is a substring of the current directory (from the left)
+                // then the parts of the string getting chopped off is everything past path.length
+                // Then count the number of '/' to get the amount of directories we are jumping
+                let slashCount = slashCounter(currentDirectory.slice(path.length));
+
+                let parent = document.getElementById("current-directory-parent")
+                // Given the amount of directories we removed, delete them
+                for (let i = 0; i < slashCount; i++) {
+                    parent.lastElementChild.remove();
+                }
+
+                // Update  the current directory
+                currentDirectory = path;
+            };
+
+            AJAX.send(data);
+        }
+        
+        function deleteDirectory(name) {
+            let AJAX = new XMLHttpRequest();
+
+            // Create POST, set the path and mark it as json
+            AJAX.open("POST", "/deleteDirectory", true);
+            AJAX.setRequestHeader("Content-Type", "application/json");
+
+            let data = JSON.stringify({directory: currentDirectory, name: name});
+
+            AJAX.onload = () => {
+                if (AJAX.status == 200) {
+                    // Loop over all directories to find the directory deleted
+                    let directories = document.querySelectorAll(".directory-parent");
+                    for (let i = 0; i < directories.length; i++) {
+                        if (directories[i].querySelector("p").textContent == name) {
+                            directories[i].remove();
+                            break;
+                        }
+                    }
+                } else {
+                    alert(AJAX.responseText)
+                }
+            };
+
+            AJAX.send(data);
+        }
+     </script>
+</head>
+
+<body>
+    <div id="file-upload-container">
+        <div id="file-upload-identifier">
+            <p><strong>Upload new files</strong></p>
+            <button onclick="closeFileUpload()" class="exit-button clickable">X</button>
+        </div>
+
+        <div id="file-upload-interactive">
+            <input type="file" name="file" required multiple hidden id="file-form">
+            <label for="file-form" id="file-upload-btn" class="clickable-button">Select files</label>
+
+            <button onclick="uploadFiles()" class="clickable-button">Submit files</button>
+        </div>
+
+        <p id="error-message-file-upload"></p>
+
+        <div id="file-upload-info"></div>
+    </div>
+
+    <div id="new-directory-container">
+        <div id="new-directory-identifier">
+            <p><strong>Create new directory</strong></p>
+            <button onclick="closeNewDirectory()" class="clickable exit-button">X</button>
+        </div>
+
+        <div id="new-directory-inputs">
+            <button onclick="submitNewDirectory()" class="clickable-button">Submit</button>
+            <input type="text" required id="directory-name">
+        </div>
+
+        <p id="error-message-directory-upload"></p>
+    </div>
+    
+    <div id="side-panel">
+        <div id="button-display">
+            <button onclick="presentFileUpload()" class="clickable-button">Upload File</button>
+            <button onclick="openNewDirectory()" class="clickable-button">New Directory</button>
+        </div>
+        
+        <hr>
+
+        <div id="download-display">
+            <p><strong>Download Progress</strong></p>
+        </div>
+    </div>
+
+    <div id="main-panel">
+        <div id="top-main-panel">
+            <p>Current directory:</p>
+            <div id="current-directory-parent">
+                <p onclick="traverseDirectoryBackwards('/')" class="clickable">root/</p>
+            </div>
+        </div>
+
+        <div id="bottom-main-panel">
+
+            <h3>Directories:</h3>
+            <div id="directories">
+                <% for (let i = 0; i < dirsPresent.length; i++) { %>
+                    <div class="directory-parent">
+                        <button onclick="deleteDirectory('<%= dirsPresent[i] %>')" class="exit-button clickable">X</button>
+                        <p class="directory clickable" onclick="jumpToDirectory('<%= dirsPresent[i] %>')"><%= dirsPresent[i] %></p>
+                    </div>  
+                <% } %>
+            </div>
+
+            <h3>Files:</h3>
+            <div id="files">
+                <% for (let i = 0; i < filesPresent.length; i++) { %>
+                    <div class="file-parent">
+                        <button onclick="deleteFile('<%= filesPresent[i] %>')" class="exit-button clickable">X</button>
+                        <p class="file clickable" onclick="window.location.href='/download/open-dir/<%= filesPresent[i] %>'"><%= filesPresent[i] %></p>
+                    </div>
+                    
+                <% } %>
+            </div>
+        </div>
+
+    </div>
+    
+</body>
